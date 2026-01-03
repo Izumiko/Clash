@@ -76,6 +76,12 @@ namespace ClashXW.Services
                     return null;
                 }
 
+                // Handle ":port" format by prepending localhost
+                if (controller.StartsWith(':'))
+                {
+                    controller = $"127.0.0.1{controller}";
+                }
+
                 var baseUrl = $"http://{controller}";
                 var dashboardUrl = $"{baseUrl}/ui";
 

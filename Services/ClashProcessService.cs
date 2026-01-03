@@ -24,16 +24,23 @@ namespace ClashXW.Services
             try
             {
                 var assetsDir = Path.GetDirectoryName(_executablePath);
-                _clashProcess = new Process
+                var startInfo = new ProcessStartInfo
                 {
-                    StartInfo = new ProcessStartInfo
-                    {
-                        FileName = _executablePath,
-                        Arguments = $"-d \"{assetsDir}\" -f \"{configPath}\"",
-                        UseShellExecute = false,
-                        CreateNoWindow = true
-                    }
+                    FileName = _executablePath,
+                    Arguments = $"-d \"{assetsDir}\" -f \"{configPath}\"",
+                    UseShellExecute = false,
+                    CreateNoWindow = true
                 };
+
+                // Add config directory to SAFE_PATHS so Clash accepts config files from there
+                var existingSafePaths = Environment.GetEnvironmentVariable("SAFE_PATHS") ?? "";
+                var configDir = ConfigManager.ConfigDir;
+                var safePaths = string.IsNullOrEmpty(existingSafePaths)
+                    ? configDir
+                    : $"{existingSafePaths},{configDir}";
+                startInfo.Environment["SAFE_PATHS"] = safePaths;
+
+                _clashProcess = new Process { StartInfo = startInfo };
                 _clashProcess.Start();
             }
             catch (Exception ex)

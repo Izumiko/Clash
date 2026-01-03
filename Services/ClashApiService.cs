@@ -57,11 +57,17 @@ namespace ClashXW.Services
             return _httpClient.PutAsJsonAsync($"{_apiBaseUrl}/proxies/{Uri.EscapeDataString(groupName)}", payload);
         }
 
-        public Task ReloadConfigAsync(string configPath)
+        public async Task ReloadConfigAsync(string configPath)
         {
-            if (string.IsNullOrEmpty(_apiBaseUrl)) return Task.CompletedTask;
+            if (string.IsNullOrEmpty(_apiBaseUrl)) return;
             var payload = new ConfigReloadRequest(configPath);
-            return _httpClient.PutAsJsonAsync($"{_apiBaseUrl}/configs?force=true", payload);
+            var response = await _httpClient.PutAsJsonAsync($"{_apiBaseUrl}/configs?force=true", payload);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorContent = await response.Content.ReadAsStringAsync();
+                throw new HttpRequestException($"Status: {response.StatusCode}, Response: {errorContent}");
+            }
         }
 
         public async Task TestGroupLatencyAsync(string groupName)
