@@ -34,7 +34,7 @@
 
 ### Prerequisites
 
--   [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0)
+-   [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0)
 
 ### Building
 
@@ -52,4 +52,4 @@ To create a release build:
 dotnet publish --configuration Release
 ```
 
-The self-contained application will be located in the `bin/Release/net8.0-windows/publish/` directory.
+The self-contained application will be located in the `bin/Release/net10.0/<rid>/publish/` directory.

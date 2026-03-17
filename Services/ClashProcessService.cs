@@ -21,6 +21,8 @@ namespace ClashXW.Services
                 throw new FileNotFoundException($"Clash executable not found at: {_executablePath}");
             }
 
+            EnsureExecutablePermissions();
+
             try
             {
                 var assetsDir = Path.GetDirectoryName(_executablePath);
@@ -53,7 +55,7 @@ namespace ClashXW.Services
         {
             if (_clashProcess != null && !_clashProcess.HasExited)
             {
-                _clashProcess.Kill();
+                _clashProcess.Kill(entireProcessTree: true);
             }
         }
 
@@ -63,6 +65,31 @@ namespace ClashXW.Services
         {
             Stop();
             _clashProcess?.Dispose();
+        }
+
+        private void EnsureExecutablePermissions()
+        {
+            if (OperatingSystem.IsWindows())
+            {
+                return;
+            }
+
+            try
+            {
+                const UnixFileMode mode = UnixFileMode.UserRead
+                                          | UnixFileMode.UserWrite
+                                          | UnixFileMode.UserExecute
+                                          | UnixFileMode.GroupRead
+                                          | UnixFileMode.GroupExecute
+                                          | UnixFileMode.OtherRead
+                                          | UnixFileMode.OtherExecute;
+
+                File.SetUnixFileMode(_executablePath, mode);
+            }
+            catch
+            {
+                // Ignore permission update failures; process start will report a concrete error.
+            }
         }
     }
 }

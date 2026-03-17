@@ -11,11 +11,34 @@ namespace ClashXW.Services
 {
     public static class ConfigManager
     {
-        public static readonly string AppDataDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ClashXW");
+        public static readonly string AppDataDir = ResolveAppDataDir();
         public static readonly string ConfigDir = Path.Combine(AppDataDir, "Config");
         private static readonly string StateFilePath = Path.Combine(AppDataDir, "state.json");
         private static readonly string DefaultConfigName = "config.yaml";
         private static readonly string DefaultConfigResourceName = "ClashXW.Resources.default-config.yaml";
+
+        private static string ResolveAppDataDir()
+        {
+            if (OperatingSystem.IsWindows())
+            {
+                return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ClashXW");
+            }
+
+            if (OperatingSystem.IsMacOS())
+            {
+                return Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                    "Library",
+                    "Application Support",
+                    "ClashXW");
+            }
+
+            // Linux and fallback.
+            return Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                ".config",
+                "ClashXW");
+        }
 
         public static void EnsureDefaultConfigExists()
         {
