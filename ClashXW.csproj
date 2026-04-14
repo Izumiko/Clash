@@ -18,7 +18,6 @@
 
   <ItemGroup>
     <PackageReference Include="Avalonia" Version="12.0.0" />
-    <PackageReference Include="Avalonia.Controls.WebView" Version="12.0.0" />
     <PackageReference Include="Avalonia.Desktop" Version="12.0.0" />
     <PackageReference Include="Avalonia.Fonts.Inter" Version="12.0.0" />
     <PackageReference Include="Avalonia.Themes.Fluent" Version="12.0.0" />
@@ -32,9 +31,23 @@
   </ItemGroup>
 
   <ItemGroup>
+    <AvaloniaXaml Remove="docs\**" />
+    <Compile Remove="ClashXW.Tests\**\*.cs" />
+    <Compile Remove="docs\**" />
+    <EmbeddedResource Remove="ClashXW.Tests\**\*" />
+    <EmbeddedResource Remove="docs\**" />
+    <None Remove="ClashXW.Tests\**\*" />
+    <None Remove="docs\**" />
+  </ItemGroup>
+
+  <ItemGroup>
     <None Include="..\ClashAssets\**\*">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>ClashAssets\%(RecursiveDir)%(FileName)%(Extension)</Link>
+    </None>
+    <None Include="DashboardAssets\**\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>DashboardAssets\%(RecursiveDir)%(FileName)%(Extension)</Link>
     </None>
   </ItemGroup>
 

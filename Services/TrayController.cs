@@ -11,7 +11,6 @@ using Avalonia.Input;
 using Avalonia.Platform;
 using Avalonia.Threading;
 using ClashXW.Models;
-using ClashXW.Views;
 
 namespace ClashXW.Services;
 
@@ -21,15 +20,16 @@ public sealed class TrayController : IDisposable
     private readonly IClassicDesktopStyleApplicationLifetime _desktopLifetime;
     private readonly TrayIcon _trayIcon;
     private readonly DispatcherTimer? _refreshTimer;
+    private readonly DashboardAssetManager _dashboardAssetManager;
 
     private ClashApiService? _apiService;
     private readonly ClashProcessService _clashProcessService;
     private readonly string _clashExecutablePath;
     private string _currentConfigPath;
+    private string? _currentDashboardDirectory;
 
     private ClashConfig? _cachedConfigs;
     private ProxiesResponse? _cachedProxies;
-    private DashboardWindow? _dashboardWindow;
 
     private bool _isSystemProxyEnabled;
     private bool _isTunEnabled;
@@ -47,6 +47,12 @@ public sealed class TrayController : IDisposable
 
         _clashExecutablePath = ResolveClashExecutablePath();
         _currentConfigPath = ConfigManager.GetCurrentConfigPath();
+        _dashboardAssetManager = new DashboardAssetManager(
+            ResolveBundledDashboardPath(),
+            Path.Combine(ConfigManager.AppDataDir, "Dashboard"),
+            Path.Combine(ConfigManager.AppDataDir, "dashboard-state.json"),
+            ConfigManager.DefaultDashboardUpdateUrl);
+        EnsureDashboardConfigured(_currentConfigPath);
         _clashProcessService = new ClashProcessService(_clashExecutablePath);
 
         _trayIcon = new TrayIcon
@@ -107,9 +113,6 @@ public sealed class TrayController : IDisposable
             }
         }
 
-        _dashboardWindow?.Close();
-        _dashboardWindow = null;
-
         _trayIcon.IsVisible = false;
         _trayIcon.Dispose();
 
@@ -129,6 +132,18 @@ public sealed class TrayController : IDisposable
         return candidates.FirstOrDefault(File.Exists) ?? candidates[0];
     }
 
+    private static string ResolveBundledDashboardPath()
+    {
+        var candidates = new[]
+        {
+            Path.Combine(AppContext.BaseDirectory, "DashboardAssets"),
+            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "DashboardAssets")),
+            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "DashboardAssets"))
+        };
+
+        return candidates.FirstOrDefault(Directory.Exists) ?? candidates[0];
+    }
+
     private static WindowIcon LoadTrayIcon(bool tunEnabled, bool proxyEnabled)
     {
         // Option A icon matrix placeholder: keep current icon assets and map state to normal/TUN icon.
@@ -146,7 +161,14 @@ public sealed class TrayController : IDisposable
     {
         try
         {
-            _clashProcessService.Start(_currentConfigPath);
+            if (!string.IsNullOrWhiteSpace(_currentDashboardDirectory))
+            {
+                _clashProcessService.Start(_currentConfigPath, _currentDashboardDirectory);
+            }
+            else
+            {
+                _clashProcessService.Start(_currentConfigPath);
+            }
             _coreStartError = null;
         }
         catch (Exception ex)
@@ -171,19 +193,49 @@ public sealed class TrayController : IDisposable
         _apiService = new ClashApiService(apiDetails.BaseUrl, apiDetails.Secret);
     }
 
+    private void EnsureDashboardConfigured(string configPath)
+    {
+        try
+        {
+            var updateUrl = ConfigManager.ReadDashboardUpdateUrl(configPath) ?? ConfigManager.DefaultDashboardUpdateUrl;
+            var dashboardState = _dashboardAssetManager.EnsureDashboardAssets(updateUrl);
+            _currentDashboardDirectory = dashboardState.DashboardDirectory;
+            var changed = ConfigManager.EnsureDashboardConfig(configPath, dashboardState.DashboardDirectory, dashboardState.UpdateUrl);
+
+            if (changed)
+            {
+                Logger.Info($"Synced dashboard config for {configPath}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.Warn($"Failed to sync dashboard assets: {ex.Message}");
+        }
+    }
+
     private async void OnRefreshTimerTick(object? sender, EventArgs e)
     {
+        if (_disposed)
+        {
+            return;
+        }
+
         await RefreshStateAndMenuAsync();
     }
 
     private async void OnTrayIconClicked(object? sender, EventArgs e)
     {
+        if (_disposed)
+        {
+            return;
+        }
+
         await RefreshStateAndMenuAsync();
     }
 
     private async Task RefreshStateAndMenuAsync()
     {
-        if (_isRefreshing || _apiService == null)
+        if (_disposed || _isRefreshing || _apiService == null)
         {
             return;
         }
@@ -213,7 +265,18 @@ public sealed class TrayController : IDisposable
                 _trayIcon.Icon = LoadTrayIcon(_isTunEnabled, _isSystemProxyEnabled);
             }
 
-            await Dispatcher.UIThread.InvokeAsync(() => { _trayIcon.Menu = BuildMenu(); });
+            if (_disposed)
+            {
+                return;
+            }
+
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                if (!_disposed)
+                {
+                    _trayIcon.Menu = BuildMenu();
+                }
+            });
         }
         catch (Exception ex)
         {
@@ -302,7 +365,9 @@ public sealed class TrayController : IDisposable
         menu.Add(new NativeMenuItemSeparator());
 
         var exitItem = new NativeMenuItem("Exit");
-        exitItem.Click += (_, _) => Exit();
+        exitItem.Click += CreateDeferredHandler(
+            Exit,
+            action => Dispatcher.UIThread.Post(action, DispatcherPriority.Background));
         menu.Add(exitItem);
 
         return menu;
@@ -572,25 +637,7 @@ public sealed class TrayController : IDisposable
     private void OnOpenDashboard()
     {
         var dashboardUri = ResolveDashboardUri();
-        try
-        {
-            if (_dashboardWindow is { IsVisible: true })
-            {
-                _dashboardWindow.Activate();
-                _dashboardWindow.Navigate(dashboardUri);
-                return;
-            }
-
-            _dashboardWindow = new DashboardWindow(dashboardUri);
-            _dashboardWindow.Closed += (_, _) => _dashboardWindow = null;
-            _dashboardWindow.Show();
-            _dashboardWindow.Activate();
-        }
-        catch (Exception ex)
-        {
-            Logger.Error("Failed to open embedded dashboard", ex);
-            OpenInExternalBrowser(dashboardUri);
-        }
+        OpenInExternalBrowser(dashboardUri);
     }
 
     private static void OpenInExternalBrowser(Uri uri)
@@ -669,6 +716,7 @@ public sealed class TrayController : IDisposable
 
         try
         {
+            EnsureDashboardConfigured(newPath);
             await _apiService.ReloadConfigAsync(newPath);
             _currentConfigPath = newPath;
             ConfigManager.SetCurrentConfigPath(newPath);
@@ -690,6 +738,7 @@ public sealed class TrayController : IDisposable
 
         try
         {
+            EnsureDashboardConfigured(_currentConfigPath);
             await _apiService.ReloadConfigAsync(_currentConfigPath);
             await RefreshStateAndMenuAsync();
         }
@@ -799,5 +848,10 @@ public sealed class TrayController : IDisposable
         }
 
         return null;
+    }
+
+    public static EventHandler CreateDeferredHandler(Action action, Action<Action> defer)
+    {
+        return (_, _) => defer(action);
     }
 }

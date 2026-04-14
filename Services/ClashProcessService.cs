@@ -1,6 +1,9 @@
 using System;
+using System.Collections.Generic;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 
 namespace ClashXW.Services
 {
@@ -14,7 +17,7 @@ namespace ClashXW.Services
             _executablePath = executablePath;
         }
 
-        public void Start(string configPath)
+        public void Start(string configPath, params string[] additionalSafePaths)
         {
             if (string.IsNullOrEmpty(_executablePath) || !File.Exists(_executablePath))
             {
@@ -36,10 +39,7 @@ namespace ClashXW.Services
 
                 // Add config directory to SAFE_PATHS so Clash accepts config files from there
                 var existingSafePaths = Environment.GetEnvironmentVariable("SAFE_PATHS") ?? "";
-                var configDir = ConfigManager.ConfigDir;
-                var safePaths = string.IsNullOrEmpty(existingSafePaths)
-                    ? configDir
-                    : $"{existingSafePaths},{configDir}";
+                var safePaths = BuildSafePaths(existingSafePaths, new[] { ConfigManager.ConfigDir }.Concat(additionalSafePaths).ToArray());
                 startInfo.Environment["SAFE_PATHS"] = safePaths;
 
                 _clashProcess = new Process { StartInfo = startInfo };
@@ -53,13 +53,48 @@ namespace ClashXW.Services
 
         public void Stop()
         {
-            if (_clashProcess != null && !_clashProcess.HasExited)
+            if (_clashProcess == null)
             {
-                _clashProcess.Kill(entireProcessTree: true);
+                return;
+            }
+
+            try
+            {
+                if (_clashProcess.HasExited)
+                {
+                    return;
+                }
+
+                // Clash runs as a single tracked child process; avoiding tree enumeration
+                // keeps shutdown fast and avoids noisy Win32 first-chance exceptions.
+                _clashProcess.Kill();
+                _clashProcess.WaitForExit(1000);
+            }
+            catch (InvalidOperationException)
+            {
+                // Process already exited between checks.
+            }
+            catch (Win32Exception)
+            {
+                // Process teardown raced with the debugger/OS; treat as already stopping.
             }
         }
 
         public bool IsRunning => _clashProcess != null && !_clashProcess.HasExited;
+
+        public static string BuildSafePaths(string existingSafePaths, params string[] requiredPaths)
+        {
+            var values = new List<string>();
+
+            if (!string.IsNullOrWhiteSpace(existingSafePaths))
+            {
+                values.AddRange(existingSafePaths.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+            }
+
+            values.AddRange(requiredPaths.Where(path => !string.IsNullOrWhiteSpace(path)));
+
+            return string.Join(Path.PathSeparator, values.Distinct(StringComparer.OrdinalIgnoreCase));
+        }
 
         public void Dispose()
         {

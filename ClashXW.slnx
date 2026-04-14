@@ -1,3 +1,4 @@
 <Solution>
   <Project Path="ClashXW.csproj" />
+  <Project Path="ClashXW.Tests/ClashXW.Tests.csproj" />
 </Solution>

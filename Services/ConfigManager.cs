@@ -5,6 +5,7 @@ using System.Linq;
 using System.Reflection;
 using System.Text.Json;
 using YamlDotNet.Serialization;
+using YamlDotNet.Serialization.NamingConventions;
 using ClashXW.Models;
 
 namespace ClashXW.Services
@@ -13,6 +14,7 @@ namespace ClashXW.Services
     {
         public static readonly string AppDataDir = ResolveAppDataDir();
         public static readonly string ConfigDir = Path.Combine(AppDataDir, "Config");
+        public const string DefaultDashboardUpdateUrl = "https://github.com/Zephyruso/zashboard/releases/latest/download/dist-pingfang-only.zip";
         private static readonly string StateFilePath = Path.Combine(AppDataDir, "state.json");
         private static readonly string DefaultConfigName = "config.yaml";
         private static readonly string DefaultConfigResourceName = "ClashXW.Resources.default-config.yaml";
@@ -100,9 +102,7 @@ namespace ClashXW.Services
         {
             try
             {
-                var yamlContent = File.ReadAllText(configPath);
-                var deserializer = new DeserializerBuilder().Build();
-                var yamlObject = deserializer.Deserialize<Dictionary<object, object>>(yamlContent);
+                var yamlObject = ReadYaml(configPath);
 
                 var controller = yamlObject?.GetValueOrDefault("external-controller")?.ToString();
                 var secret = yamlObject?.GetValueOrDefault("secret")?.ToString();
@@ -127,6 +127,65 @@ namespace ClashXW.Services
             {
                 return null; // Failed to read or parse
             }
+        }
+
+        public static string? ReadDashboardUpdateUrl(string configPath)
+        {
+            try
+            {
+                var yamlObject = ReadYaml(configPath);
+                return yamlObject?.GetValueOrDefault("external-ui-url")?.ToString();
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        public static bool EnsureDashboardConfig(string configPath, string dashboardDirectory, string updateUrl)
+        {
+            var yamlObject = ReadYaml(configPath) ?? new Dictionary<object, object>();
+            var normalizedDirectory = NormalizePathForYaml(dashboardDirectory);
+
+            var changed = false;
+            changed |= SetYamlValue(yamlObject, "external-ui", normalizedDirectory);
+            changed |= SetYamlValue(yamlObject, "external-ui-url", updateUrl);
+
+            if (!changed)
+            {
+                return false;
+            }
+
+            var serializer = new SerializerBuilder()
+                .WithNamingConvention(NullNamingConvention.Instance)
+                .Build();
+
+            File.WriteAllText(configPath, serializer.Serialize(yamlObject));
+            return true;
+        }
+
+        private static Dictionary<object, object>? ReadYaml(string configPath)
+        {
+            var yamlContent = File.ReadAllText(configPath);
+            var deserializer = new DeserializerBuilder().Build();
+            return deserializer.Deserialize<Dictionary<object, object>>(yamlContent);
+        }
+
+        private static bool SetYamlValue(IDictionary<object, object> yamlObject, string key, string value)
+        {
+            if (yamlObject.TryGetValue(key, out var currentValue)
+                && string.Equals(currentValue?.ToString(), value, StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            yamlObject[key] = value;
+            return true;
+        }
+
+        private static string NormalizePathForYaml(string path)
+        {
+            return path.Replace('\\', '/');
         }
 
     }
